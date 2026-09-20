@@ -34,7 +34,6 @@ public class TaskServiceImpl implements TaskService {
     public Long createTask(CreateTaskRequest taskRequest) {
         String title = taskRequest.getTitle();
         String description = taskRequest.getDescription();
-        if (title == null || title == "") throw new BusinessException(ResultCode.BAD_REQUEST,"标题不能为空");
         LocalDateTime createdTime = LocalDateTime.now();
         Task task = Task.builder().title(title).description(description).status(TaskStatus.PENDING).createdTime(createdTime).build();
         int result = taskMapper.insertTask(task);

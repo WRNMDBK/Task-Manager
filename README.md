@@ -1,8 +1,7 @@
 # Task Manager · 任务记录管理
 
-一个基于 Spring Boot、MyBatis 和 MySQL 的任务管理后端项目，用于记录待办事项、查询任务进度、完成任务及保存操作记录。
-
-目前提供 HTTP JSON 接口，可使用 Postman、Apifox 或 PowerShell 调用。项目目前不包含前端、登录、分页、Redis 或消息队列。
+基于 Spring Boot、MyBatis 和 MySQL 的任务管理后端项目，用于记录待办事项、查询任务进度、完成任务及保存操作记录。
+目前提供 HTTP JSON 接口，可使用 Postman、Apifox 或 PowerShell 调用。项目不包含前端、登录、分页、Redis 或消息队列。
 
 ## 技术栈
 
@@ -244,7 +243,7 @@ java -jar .\target\Task-Manager-0.0.1-SNAPSHOT.jar
 
 ## 待完善事项
 
-后续主要完善以下内容：
+对照设计书，后续主要完善以下内容：
 
 - [ ] 完整校验标题：不能为空白，且最多 100 个字符。当前使用 `title == ""` 判断空字符串，需改为可靠的内容校验。
 - [ ] 校验描述最多 500 个字符。

@@ -5,6 +5,7 @@ import com.taskmanager.entity.vo.CreateTaskRequest;
 import com.taskmanager.service.TaskService;
 import com.taskmanager.utils.Result;
 import com.taskmanager.utils.ResultCode;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,7 +24,7 @@ public class TaskController {
      * @return 新增 task_record 的主键 ID
      */
     @PostMapping
-    public Result<Long> createTask(@RequestBody CreateTaskRequest taskRequest) {
+    public Result<Long> createTask(@Valid @RequestBody CreateTaskRequest taskRequest) {
         Long result = taskService.createTask(taskRequest);
         return Result.success(result);
     }
