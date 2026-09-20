@@ -15,11 +15,13 @@
 | MySQL | 数据持久化，两张表使用 InnoDB |
 | Maven Wrapper | 构建、启动和执行测试 |
 | Lombok | 生成构造方法、访问方法等代码 |
+| Hibernate Validator | 通过 `spring-boot-starter-validation` 集成，使用 Jakarta Validation 注解校验参数 |
 | JUnit Jupiter / Spring Boot Test | 测试依赖 |
 
 ## 功能
 
 - 创建任务：保存标题、描述，初始状态为 `PENDING`，返回生成的 ID。
+- 参数校验：使用 Hibernate Validator 校验创建任务的标题和描述，校验失败时返回具体提示。
 - 查询任务：根据 ID 获取任务详情。
 - 查询列表：支持按状态筛选，不传状态时查询全部，按 ID 升序排列。
 - 完成任务：将 `PENDING` 改为 `DONE`，同时写入一条 `COMPLETE` 操作记录。
@@ -144,6 +146,14 @@ macOS / Linux 使用 `export` 设置同名环境变量，并通过 `./mvnw sprin
 
 ### 创建任务
 
+创建请求通过 Controller 参数上的 `@Valid` 触发 `CreateTaskRequest` 的字段校验：
+
+| 字段 | 校验规则 | 校验失败提示 |
+| --- | --- | --- |
+| `title` | `@NotBlank`：不能为 `null`、空字符串或纯空白 | 标题不能为空 |
+| `title` | `@Size(max = 100)`：最多 100 个字符 | 标题不能超过100个字符 |
+| `description` | `@Size(max = 500)`：最多 500 个字符，可省略或为 `null` | 描述不能超过500个字符 |
+
 ```http
 POST /tasks
 Content-Type: application/json
@@ -168,6 +178,18 @@ Content-Type: application/json
 
 ### 错误响应
 
+创建任务的字段校验失败时，`GlobalExceptionHandler` 捕获 `MethodArgumentNotValidException`，返回第一个字段错误的提示，并以 WARN 级别记录日志。例如，标题仅包含空格时返回：
+
+```json
+{
+  "code": 400,
+  "message": "标题不能为空",
+  "data": null
+}
+```
+
+此处 `400` 仍是业务码，实际 HTTP 状态为 200。多个约束同时校验失败时，仅返回其中第一个字段错误的提示。
+
 例如，重复完成任务时返回：
 
 ```json
@@ -178,7 +200,7 @@ Content-Type: application/json
 }
 ```
 
-当前主要业务码为 `400`（已检测到的参数错误）、`404`（任务不存在）、`409`（重复完成）和 `500`（系统异常）。请求格式或参数类型异常目前可能进入通用异常处理，返回业务码 `500`。
+当前主要业务码为 `400`（创建任务的字段校验失败）、`404`（任务不存在）、`409`（重复完成）和 `500`（系统异常）。JSON 格式错误或参数类型不匹配目前可能进入通用异常处理，返回业务码 `500`；列表 `status` 的取值校验尚未实现。
 
 ### PowerShell 调用示例
 
@@ -239,17 +261,16 @@ java -jar .\target\Task-Manager-0.0.1-SNAPSHOT.jar
 
 当前测试类使用 `@SpringBootTest`，包含异常信息输出示例，尚未覆盖接口行为、业务断言和事务回滚。这些命令是运行说明，不代表仓库已经完成全部测试验证。
 
-日志方面，业务异常使用 WARN 记录消息，系统异常使用 ERROR 记录堆栈；MyBatis 当前通过 `StdOutImpl` 输出 SQL 调试信息。
+日志方面，业务异常和参数校验失败使用 WARN 记录消息，系统异常使用 ERROR 记录堆栈；MyBatis 当前通过 `StdOutImpl` 输出 SQL 调试信息。
 
 ## 待完善事项
 
 对照设计书，后续主要完善以下内容：
 
-- [ ] 完整校验标题：不能为空白，且最多 100 个字符。当前使用 `title == ""` 判断空字符串，需改为可靠的内容校验。
-- [ ] 校验描述最多 500 个字符。
 - [ ] 校验列表状态只接受 `PENDING`、`DONE` 或不筛选，非法值返回参数错误。
 - [ ] 对齐设计书的 HTTP 状态码：非法输入 400、任务不存在 404、重复完成 409、删除成功 204；当前仅在 JSON 中返回相应业务码。
 - [ ] 补充创建、查询、筛选、删除、重复完成等接口与业务测试。
+- [ ] 补充参数校验测试，覆盖空白标题、标题超过 100 个字符、描述超过 500 个字符，以及可选描述和长度边界。
 - [ ] 验证事务成功提交和第二步失败时的整体回滚，并保留验证记录。
 - [ ] 补充包含任务 ID 和关键操作的业务日志。
 - [ ] 补充登录与注册功能
