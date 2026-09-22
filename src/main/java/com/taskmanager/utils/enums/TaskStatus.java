@@ -1,4 +1,4 @@
-package com.taskmanager.utils;
+package com.taskmanager.utils.enums;
 
 public enum TaskStatus {
     PENDING,DONE;

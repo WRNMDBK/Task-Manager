@@ -1,11 +1,27 @@
 server:
-  port: 8080
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: file:./taskmanager.p12
+    key-store-type: PKCS12
+    key-store-password: ${SSL_KEY_STORE_PASSWORD}
+    key-alias: taskmanager
+
 spring:
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    database: ${REDIS_DB_NUM:0}
+
+jwt:
+  key: ${JWT_KEY}
+  expiration-day: ${JWT_EXPIRE_DAY}
+
 mybatis:
   mapper-locations: classpath:/mapper/*.xml
   configuration:

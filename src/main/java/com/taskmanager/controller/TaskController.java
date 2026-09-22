@@ -4,7 +4,6 @@ import com.taskmanager.entity.dto.Task;
 import com.taskmanager.entity.vo.CreateTaskRequest;
 import com.taskmanager.service.TaskService;
 import com.taskmanager.utils.Result;
-import com.taskmanager.utils.ResultCode;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -61,7 +60,7 @@ public class TaskController {
     @PostMapping("/{id}/complete")
     public Result<Void> completeTask(@PathVariable Long id) {
         taskService.completeTask(id);
-        return Result.success(ResultCode.NO_CONTENT,null);
+        return Result.success();
     }
 
     /**
@@ -72,7 +71,7 @@ public class TaskController {
     @DeleteMapping("/{id}")
     public Result<Void> deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
-        return Result.success(ResultCode.NO_CONTENT,null);
+        return Result.success();
     }
 
 }

@@ -1,4 +1,4 @@
-package com.taskmanager.utils;
+package com.taskmanager.utils.enums;
 
 import lombok.Getter;
 

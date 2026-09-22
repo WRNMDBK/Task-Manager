@@ -1,12 +1,13 @@
 package com.taskmanager.utils;
 
+import com.taskmanager.utils.enums.ResultCode;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
  * 预设了各种状况的结果类型
- * 使用 com.taskmanager.utils.ResultCode 的枚举对象和属性作为预设
+ * 使用 com.taskmanager.utils.enums.ResultCode 的枚举对象和属性作为预设
  * @param <T> 泛型响应数据的类型
  */
 @Data
@@ -20,7 +21,7 @@ public class Result<T> {
 
     // 无携带信息的成功响应
     public static <T> Result<T> success() {
-            return new Result<>(ResultCode.OK.getCode(), ResultCode.OK.getMessage(), null);
+            return new Result<>(ResultCode.NO_CONTENT.getCode(), ResultCode.NO_CONTENT.getMessage(), null);
     }
 
     // 携带信息的成功响应

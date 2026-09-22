@@ -7,17 +7,15 @@ import com.taskmanager.exception.BusinessException;
 import com.taskmanager.mapper.TaskMapper;
 import com.taskmanager.mapper.TaskOperationMapper;
 import com.taskmanager.service.TaskService;
-import com.taskmanager.utils.ResultCode;
-import com.taskmanager.utils.TaskOperationAction;
-import com.taskmanager.utils.TaskStatus;
-import jakarta.annotation.Resource;
+import com.taskmanager.utils.enums.ResultCode;
+import com.taskmanager.utils.enums.TaskOperationAction;
+import com.taskmanager.utils.enums.TaskStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor

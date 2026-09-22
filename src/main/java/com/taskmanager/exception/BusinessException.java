@@ -1,6 +1,6 @@
 package com.taskmanager.exception;
 
-import com.taskmanager.utils.ResultCode;
+import com.taskmanager.utils.enums.ResultCode;
 import lombok.Getter;
 
 @Getter

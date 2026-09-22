@@ -2,7 +2,7 @@ package com.taskmanager;
 
 import com.taskmanager.exception.BusinessException;
 import com.taskmanager.utils.Result;
-import com.taskmanager.utils.ResultCode;
+import com.taskmanager.utils.enums.ResultCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;

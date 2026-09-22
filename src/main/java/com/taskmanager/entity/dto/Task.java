@@ -1,14 +1,12 @@
 package com.taskmanager.entity.dto;
 
-import com.taskmanager.utils.TaskStatus;
+import com.taskmanager.utils.enums.TaskStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigInteger;
 import java.time.LocalDateTime;
-import java.util.Date;
 
 @Data
 @Builder
