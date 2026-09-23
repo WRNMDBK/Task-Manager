@@ -61,6 +61,7 @@ public class JWTUtils {
             Map<String, Object> userInfo = new HashMap<>();
             userInfo.put("uid",claims.getPayload().get("uid"));
             userInfo.put("username",claims.getPayload().get("username"));
+            userInfo.put("expire-time",claims.getPayload().getExpiration());
             return userInfo;
             // 按照由小到大顺序先抓子类异常再抓父类异常
         } catch (ExpiredJwtException e) {
@@ -70,9 +71,7 @@ public class JWTUtils {
         } catch (io.jsonwebtoken.security.SecurityException e) {
             throw new BusinessException(ResultCode.UNAUTHORIZED,"Token签名错误");
         } catch (JwtException e) {
-            throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR,"Token解析失败");
-        } catch (RuntimeException e) {
-            throw new RuntimeException();
+            throw new BusinessException(ResultCode.INTERNAL_SERVER_ERROR, "Token解析失败");
         }
     }
 }

@@ -2,7 +2,7 @@ package com.taskmanager.service.impl;
 
 import com.taskmanager.entity.dto.Task;
 import com.taskmanager.entity.dto.TaskOperation;
-import com.taskmanager.entity.vo.CreateTaskRequest;
+import com.taskmanager.entity.vo.CreateTaskVO;
 import com.taskmanager.exception.BusinessException;
 import com.taskmanager.mapper.TaskMapper;
 import com.taskmanager.mapper.TaskOperationMapper;
@@ -29,7 +29,7 @@ public class TaskServiceImpl implements TaskService {
      * @param taskRequest task请求参数容器对象
      * @return 成功插入后 task_record 的 id
      */
-    public Long createTask(CreateTaskRequest taskRequest) {
+    public Long createTask(CreateTaskVO taskRequest) {
         String title = taskRequest.getTitle();
         String description = taskRequest.getDescription();
         LocalDateTime createdTime = LocalDateTime.now();

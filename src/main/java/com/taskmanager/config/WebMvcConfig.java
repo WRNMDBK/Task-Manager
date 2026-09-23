@@ -1,4 +1,4 @@
-package com.taskmanager;
+package com.taskmanager.config;
 
 import com.taskmanager.interceptor.AuthorizeInterceptor;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +17,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(authorizeInterceptor)
                 .addPathPatterns("/**")
                 .excludePathPatterns("/login")
-                .excludePathPatterns("/register");
+                .excludePathPatterns("/register/**");
     }
 
 }

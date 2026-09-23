@@ -1,7 +1,7 @@
 package com.taskmanager.controller;
 
 import com.taskmanager.entity.dto.Task;
-import com.taskmanager.entity.vo.CreateTaskRequest;
+import com.taskmanager.entity.vo.CreateTaskVO;
 import com.taskmanager.service.TaskService;
 import com.taskmanager.utils.Result;
 import jakarta.validation.Valid;
@@ -23,7 +23,7 @@ public class TaskController {
      * @return 新增 task_record 的主键 ID
      */
     @PostMapping
-    public Result<Long> createTask(@Valid @RequestBody CreateTaskRequest taskRequest) {
+    public Result<Long> createTask(@Valid @RequestBody CreateTaskVO taskRequest) {
         Long result = taskService.createTask(taskRequest);
         return Result.success(result);
     }

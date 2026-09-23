@@ -1,10 +1,9 @@
 package com.taskmanager.service;
 
 import com.taskmanager.entity.dto.Task;
-import com.taskmanager.entity.vo.CreateTaskRequest;
+import com.taskmanager.entity.vo.CreateTaskVO;
 
 import java.util.List;
-import java.util.Map;
 
 public interface TaskService {
 
@@ -13,7 +12,7 @@ public interface TaskService {
      * @param taskRequest task请求参数容器对象
      * @return 成功插入后 Task 的 ID
      */
-    Long createTask(CreateTaskRequest taskRequest);
+    Long createTask(CreateTaskVO taskRequest);
 
     /**
      * 根据 id 查询对应的 Task 信息

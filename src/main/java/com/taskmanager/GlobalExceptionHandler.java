@@ -4,6 +4,7 @@ import com.taskmanager.exception.BusinessException;
 import com.taskmanager.utils.Result;
 import com.taskmanager.utils.enums.ResultCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,6 +27,16 @@ public class GlobalExceptionHandler {
         String message = e.getBindingResult().getFieldError().getDefaultMessage();
         log.warn("参数校验失败：{}", message);
         return Result.failure(ResultCode.BAD_REQUEST, message);
+    }
+
+    // 捕获唯一索引冲突异常
+    @ExceptionHandler(DuplicateKeyException.class)
+    public Result<Void> handleDuplicateKeyException(DuplicateKeyException e) {
+        String message = e.getCause().getMessage();
+        log.warn("唯一索引冲突：{}", message);
+        if (message.endsWith("'user.uk_username'")) return Result.failure(ResultCode.CONFLICT, "用户名冲突");
+        if (message.endsWith("'user.uk_email'")) return Result.failure(ResultCode.CONFLICT, "邮箱冲突");
+        return Result.failure(ResultCode.CONFLICT, "用户名或邮箱冲突");
     }
 
     // 兜底捕获所有系统异常

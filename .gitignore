@@ -33,3 +33,5 @@ build/
 .vscode/
 /taskmanager.p12
 /account
+# 本地环境变量配置
+/envionment_variables.env

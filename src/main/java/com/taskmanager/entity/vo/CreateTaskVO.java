@@ -2,14 +2,10 @@ package com.taskmanager.entity.vo;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 @Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class CreateTaskRequest {
+public class CreateTaskVO {
 
     @NotBlank(message = "标题不能为空")
     @Size(max = 100, message = "标题不能超过100个字符")
