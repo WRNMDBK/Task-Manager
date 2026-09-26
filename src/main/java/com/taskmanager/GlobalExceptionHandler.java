@@ -2,7 +2,9 @@ package com.taskmanager;
 
 import com.taskmanager.exception.BusinessException;
 import com.taskmanager.utils.Result;
+import com.taskmanager.utils.ValidationUtils;
 import com.taskmanager.utils.enums.ResultCode;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,11 +22,11 @@ public class GlobalExceptionHandler {
         return Result.failure(e.getResultCode(), e.getMessage());
     }
 
-    // 捕获参数格式异常
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public Result<Void> handleValidationException(MethodArgumentNotValidException e) {
-        // 拿到第一个校验失败的提示信息
-        String message = e.getBindingResult().getFieldError().getDefaultMessage();
+    // 捕获校验参数格式异常
+    @ExceptionHandler({MethodArgumentNotValidException.class,ConstraintViolationException.class})
+    public Result<Void> handleValidationException(Exception e) {
+        // 提取第一个校验失败的提示信息
+        String message = ValidationUtils.getErrorMessage(e);
         log.warn("参数校验失败：{}", message);
         return Result.failure(ResultCode.BAD_REQUEST, message);
     }

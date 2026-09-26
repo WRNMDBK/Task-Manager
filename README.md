@@ -1,7 +1,7 @@
 # Task Manager · 任务记录管理
 
 基于 Spring Boot 的任务管理后端项目，用于记录待办事项、查询任务进度、完成任务及保存操作记录。
-目前提供邮箱验证码注册、JWT 登录鉴权和退出登录的 JSON 接口，默认通过 HTTPS 访问，可使用 Postman、Apifox 或 PowerShell 调用。项目不包含前端或分页；通过 RabbitMQ 异步发送邮件，使用 Redis 保存验证码和 JWT 黑名单。
+目前提供邮箱验证码注册、JWT 登录鉴权、退出登录和接口限流的 JSON 接口，默认通过 HTTPS 访问，可使用 Postman、Apifox 或 PowerShell 调用。项目不包含前端或分页；通过 RabbitMQ 异步发送邮件，使用 Redis 保存验证码、JWT 黑名单和限流计数；接口限流由注解、拦截器和 Redis Lua 脚本共同实现，脚本位于 `src/main/resources/scripts/rate-limit.lua`。
 
 ## 技术栈
 
@@ -15,7 +15,8 @@
 | MySQL | 用户、任务和操作记录持久化，使用 InnoDB |
 | JJWT | 0.13.0，签发和校验 HS256 JWT |
 | Spring Security Crypto | 7.2.0-M1，使用 BCrypt 校验密码 |
-| Spring Data Redis | 4.2.0-M1，保存邮箱验证码和 JWT 黑名单 |
+| Spring Data Redis | 4.2.0-M1，保存邮箱验证码、JWT 黑名单和限流计数 |
+| Redis Lua 脚本 | 通过 `DefaultRedisScript` 执行 `scripts/rate-limit.lua`，把限流的多步操作合并为一次原子执行 |
 | Spring AMQP / RabbitMQ | 异步投递邮件任务 |
 | Spring Mail | 通过 SMTP 发送验证码邮件 |
 | Maven Wrapper | 构建、启动和执行测试 |
@@ -27,10 +28,11 @@
 
 - 邮箱注册：发送六位验证码，有效期 5 分钟；验证成功后保存 BCrypt 密码哈希并返回 JWT。
 - 用户登录：通过用户名和密码登录，使用 BCrypt 校验数据库中的密码哈希，成功后返回 JWT。
-- 退出登录：将当前 Token 加入 Redis 黑名单，后续携带同一 Token 的受保护请求被拒绝。
+- 退出登录：将当前 Token 的唯一标识 `jti` 写入 Redis（`jwt:logout:{jti}`），过期时间取该 Token 的剩余有效期，不再保存完整 Token 且不会残留永不过期的键；后续携带同一 Token 的受保护请求被拒绝。
 - 接口鉴权：任务接口要求携带有效 JWT，校验通过后将用户 ID 和用户名保存到请求属性 `user` 中。
+- 接口限流：通过 `@RateLimit` 注解为每个接口声明阈值，由独立的限流拦截器在进入 Controller 之前执行，超限返回业务码 `429`；计数与封禁判断由 Redis Lua 脚本一次性完成。
 - 创建任务：保存标题、描述，初始状态为 `PENDING`，返回生成的 ID。
-- 参数校验：使用 Hibernate Validator 校验创建任务的标题和描述，校验失败时返回具体提示。
+- 参数校验：使用 Hibernate Validator 校验创建任务的标题和描述，以及查询列表时 `status` 的取值，校验失败时返回具体提示。
 - 查询任务：根据 ID 获取任务详情。
 - 查询列表：支持按状态筛选，不传状态时查询全部，按 ID 升序排列。
 - 完成任务：将 `PENDING` 改为 `DONE`，同时写入一条 `COMPLETE` 操作记录。
@@ -40,6 +42,63 @@
 当前代码与设计目标的差异见文末“待完善事项”。
 
 当前已实现邮箱注册、登录和退出登录，尚未提供 Token 刷新接口。任务尚未按用户隔离：已登录用户可以访问和操作现有的全部任务。
+
+### 接口限流
+
+限流由三部分组成：
+
+| 组成 | 位置 | 职责 |
+| --- | --- | --- |
+| `@RateLimit` | `annotation/RateLimit.java` | 在 Controller 方法上声明阈值 |
+| `LimitInterceptor` | `interceptor/LimitInterceptor.java` | 请求进入 Controller 前触发限流检查 |
+| `RequestLimiter` + Lua 脚本 | `utils/RequestLimiter.java`、`resources/scripts/rate-limit.lua` | 读取注解、拼接键名、执行脚本、决定放行或抛异常 |
+
+注解参数：
+
+| 参数 | 含义 |
+| --- | --- |
+| `type` | 限流档位，取值为 `RequestType` 枚举，同时也是键名中的接口标识 |
+| `count` | 固定窗口内允许通过的请求数 |
+| `second` | 固定窗口长度（秒） |
+| `banSecond` | 命中阈值后的封禁时长（秒），默认 60 |
+
+`RequestType` 按接口划分（`AUTHORIZE`、`CREATE_TASK`、`GET_TASK_MESSAGE`、`GET_TASK_LIST`、`COMPLETE_TASK`、`DELETE_TASK`），使各接口拥有独立的计数额度，不再共用一份。
+
+当前阈值配置：
+
+| 接口 | `type` | `count` | `second` | `banSecond` |
+| --- | --- | --- | --- | --- |
+| `POST /login` | `AUTHORIZE` | 5 | 60 | 60（默认） |
+| `POST /register/send-code` | `AUTHORIZE` | 5 | 60 | 60（默认） |
+| `POST /register/confirm` | `AUTHORIZE` | 5 | 60 | 60（默认） |
+| `POST /tasks` | `CREATE_TASK` | 5 | 60 | 180 |
+| `GET /tasks/{id}` | `GET_TASK_MESSAGE` | 5 | 1 | 60 |
+| `GET /tasks` | `GET_TASK_LIST` | 5 | 1 | 60 |
+| `POST /tasks/{id}/complete` | `COMPLETE_TASK` | 5 | 60 | 180 |
+| `DELETE /tasks/{id}` | `DELETE_TASK` | 5 | 60 | 180 |
+
+登录、发送验证码和确认注册共用一个 `AUTHORIZE` 档位，因此同一 IP 会共享这一份额度。未标注 `@RateLimit` 的方法（例如 `/logout`）当前直接放行。
+
+限流维度是**客户端 IP**（`request.getRemoteAddr()`）。Redis 键名：
+
+```text
+limit:count:{type}:{ip}        # 固定窗口内的请求计数，TTL = second
+limit:blacklist:{type}:{ip}    # 封禁标记，TTL = banSecond
+```
+
+脚本执行流程（`scripts/rate-limit.lua`）：
+
+1. `EXISTS` 黑名单键，命中则直接返回 `false`（拒绝）；
+2. `INCR` 计数键；
+3. 计数为 1（新窗口）**或** 键的 TTL 小于 0（键丢了过期时间）时执行 `EXPIRE`，把窗口固定为 `second`；
+4. 计数大于 `count` 时 `SET` 黑名单键并附带 `EX banSecond`，返回 `false`；
+5. 其余情况返回 `true`（放行）。
+
+第 3 步的两个条件缺一不可：只在窗口开始时设置 TTL，可以避免固定窗口被后续请求不断续期（否则限速会退化成“累计总量”，正常用户也会被封）；而兜底补 TTL，是为了修复 `INCR` 对不存在的键会创建出“永不过期”计数键的问题。
+
+脚本以 `Boolean` 为返回类型注册为 Bean（`config/RedisScriptsConfig.java`），只创建一次。Spring 执行时会先按脚本 SHA1 发送 `EVALSHA`，脚本不在 Redis 缓存中时回退到 `EVAL`。
+
+**为什么把这几步放进 Lua，而不是在 Java 里依次调用：** 这些操作必须一口气执行完，而且后一步依赖前一步的结果。若分散在 Java 中分次发送命令，中间会被并发请求插入，也可能因为异常或服务重启只发出去一半（留下 `TTL = -1` 的计数键，该 IP 会被反复永久封禁）。Lua 脚本在 Redis 端整体执行，客户端断开也不会中断，相当于把“发送命令”和“命令执行完”之间的缝隙焊死。
 
 ## 项目结构
 
@@ -51,28 +110,37 @@ Task-Manager/
     ├── main/
     │   ├── java/com/taskmanager/
     │   │   ├── TaskManagerApplication.java  # 启动入口及 Mapper 扫描
-    │   │   ├── GlobalExceptionHandler.java # 统一异常处理
-    │   │   ├── config/                    # WebMvcConfig 鉴权配置、RabbitMQConfig 队列配置
-    │   │   ├── controller/                # HTTP 接口
-    │   │   │   └── authorize/             # 登录、邮箱注册、退出登录接口
-    │   │   ├── interceptor/               # JWT 请求鉴权
-    │   │   ├── service/                   # 业务接口及实现
-    │   │   ├── mapper/                    # 数据访问接口、注解 SQL
-    │   │   ├── entity/dto/                # Task、TaskOperation、User、EmailMessageDTO
-    │   │   ├── entity/vo/                 # CreateTaskVO、LoginVO、FirstRegisterVO、SecondRegisterVO
-    │   │   ├── mqListener/                # 消费邮件任务并发送验证码
-    │   │   ├── exception/                 # 业务异常
-    │   │   └── utils/                     # JWT、BCrypt、响应封装及 enums 状态枚举
+    │   │   ├── GlobalExceptionHandler.java  # 统一异常处理
+    │   │   ├── annotation/                  # RateLimit 限流注解
+    │   │   ├── config/                      # WebMvcConfig 拦截器注册、RedisScriptsConfig 脚本注册、RabbitMQConfig 队列配置
+    │   │   ├── controller/                  # HTTP 接口
+    │   │   │   └── authorize/               # 登录、邮箱注册、退出登录接口
+    │   │   ├── interceptor/                 # LimitInterceptor 限流、AuthorizeInterceptor 鉴权
+    │   │   ├── service/                     # 业务接口及实现
+    │   │   ├── mapper/                      # 数据访问接口、注解 SQL
+    │   │   ├── entity/dto/                  # Task、TaskOperation、User、EmailMessageDTO、LoginUserInfo
+    │   │   ├── entity/vo/                   # CreateTaskVO、LoginVO、FirstRegisterVO、SecondRegisterVO
+    │   │   ├── mqListener/                  # 消费邮件任务并发送验证码
+    │   │   ├── exception/                   # 业务异常
+    │   │   └── utils/                       # JWT、BCrypt、RequestLimiter、响应封装及 enums 状态与请求类型枚举
     │   └── resources/
     │       ├── application.yml
-    │       └── mapper/TaskMapper.xml      # 列表动态 SQL、结果映射
+    │       ├── mapper/TaskMapper.xml        # 列表动态 SQL、结果映射
+    │       └── scripts/rate-limit.lua       # 限流 Lua 脚本
     └── test/java/com/taskmanager/
         └── TaskManagerApplicationTests.java
 ```
 
 请求流程：`Controller → Service → Mapper → MySQL`。依赖通过构造方法注入，连接和事务由 Spring 管理。当前 Mapper 同时使用注解 SQL 和 XML 映射。
 
-受保护请求先经过 `AuthorizeInterceptor → JWTUtils` 检查 Redis 黑名单并校验 JWT，再进入 Controller。拦截器配置覆盖 `/**`，排除 `/login` 和 `/register/**`；`/logout` 需要鉴权。邮件任务经 `amq.direct` 交换机和 `email` 路由键进入 `email` 队列，由 `EmailListener` 发送，成功后手动确认，失败时拒绝且不重新入队。
+拦截器顺序由 `WebMvcConfig` 中的 `order` 决定，限流排在鉴权之前：
+
+1. `LimitInterceptor`（`/**`，`order = 1`）：读取方法上的 `@RateLimit` 并执行限流脚本，超限抛出业务异常 `429`；未标注解的方法、以及不属于 Controller 方法（静态资源、跨域预检等）的请求直接放行。
+2. `AuthorizeInterceptor`（`/**`，排除 `/login` 和 `/register/**`，`order = 2`）：放行 OPTIONS 预检请求，解析并校验 JWT，检查 Redis 退出登录黑名单，最后把用户信息放入请求属性 `user`。
+
+限流放在鉴权之前，是为了让未携带或携带无效 Token 的洪水请求也先被计数拦下，而不是每次都白跑一遍 JWT 解析。`/logout` 需要鉴权。
+
+邮件任务经 `amq.direct` 交换机和 `email` 路由键进入 `email` 队列，由 `EmailListener` 发送，成功后手动确认，失败时拒绝且不重新入队。
 
 ## 本地运行
 
@@ -155,6 +223,7 @@ VALUES ('demo', '<替换为生成的 BCrypt 哈希>', NULL);
 | `MAIL_HOST` | SMTP 服务器地址 |
 | `MAIL_USERNAME` | SMTP 登录账号，同时作为发件人地址 |
 | `MAIL_PASSWORD` | SMTP 密码或邮箱授权码 |
+| `EMAIL_CODE_SECOND` | 验证码及其发送标记在 Redis 中的有效秒数（`limit.email-code-second`） |
 
 在当前 PowerShell 终端设置，替换为自己的连接信息：
 
@@ -175,9 +244,10 @@ $env:MQ_PASSWORD = 'your_mq_password'
 $env:MAIL_HOST = 'smtp.example.com'
 $env:MAIL_USERNAME = 'sender@example.com'
 $env:MAIL_PASSWORD = 'your_mail_authorization_code'
+$env:EMAIL_CODE_SECOND = '300'
 ```
 
-以上值均为占位示例，`JWT_KEY` 应替换为随机密钥。验证码存储、退出登录和受保护接口的黑名单检查依赖 Redis。当前 Redis 配置位于 `spring.redis`，运行时需核对配置是否被绑定，确保实际连接地址符合预期。SMTP 端口、认证及 TLS/SSL 选项需按邮箱服务商要求补充到配置中。
+以上值均为占位示例，`JWT_KEY` 应替换为随机密钥。验证码存储、退出登录黑名单和限流计数都依赖 Redis。当前 Redis 配置位于 `spring.redis`，运行时需核对配置是否被绑定，确保实际连接地址符合预期。SMTP 端口、认证及 TLS/SSL 选项需按邮箱服务商要求补充到配置中。
 
 这些变量只对当前终端及其启动的进程生效。如果通过 IntelliJ IDEA 的运行按钮启动，请在 `TaskManagerApplication` 的运行配置中设置相同的环境变量。项目未配置自动加载 `.env` 文件。本地配置可保存在 `envionment_variables.env`，再由运行环境加载；该文件已被 `.gitignore` 忽略，不随仓库提交。
 
@@ -221,7 +291,7 @@ macOS / Linux 使用 `export` 设置同名环境变量，并通过 `./mvnw sprin
 | 完成任务 | `POST /tasks/{id}/complete` | 路径参数 `id` | `null` / `204` |
 | 删除任务 | `DELETE /tasks/{id}` | 路径参数 `id` | `null` / `204` |
 
-列表无匹配记录时返回空数组。当前实现中，不传 `status` 或传空字符串均查询全部；合法的状态值为 `PENDING` 和 `DONE`，但尚未主动拦截非法状态。
+除以上成功响应外，任一被标注 `@RateLimit` 的接口触发限流时都会返回业务码 `429`。列表无匹配记录时返回空数组。当前实现中，不传 `status` 或传空字符串均查询全部；`status` 的取值由 `@Pattern` 限制为 `PENDING` 或 `DONE`。
 
 ### 邮箱注册
 
@@ -239,7 +309,9 @@ Content-Type: application/json
 
 用户名必填，长度为 3～15 个字符；邮箱必填且需符合邮箱格式。用户名或邮箱已被使用时返回业务码 `409`。成功返回业务码 `204`，表示已提交邮件任务并保存验证码，邮件由后台异步发送。
 
-收到邮件后，在 5 分钟内提交注册信息，使用相同的用户名和邮箱。验证码使用字符串，保留可能出现的前导零：
+验证码与其发送标记共用 Redis 键 `EmailCode:{email}:{ip}`，有效期由 `EMAIL_CODE_SECOND` 决定（当前为 5 分钟）。同一邮箱和 IP 在有效期内重复请求会返回业务码 `429`（`请求验证码频繁，请稍后再试`）。
+
+收到邮件后，在有效期内提交注册信息，使用相同的用户名和邮箱。验证码使用字符串，保留可能出现的前导零：
 
 ```http
 POST /register/confirm
@@ -253,7 +325,7 @@ Content-Type: application/json
 }
 ```
 
-密码必填，长度为 5～30 个字符；验证码必填且长度为 6。校验成功后创建用户，返回业务码 `200`，`data` 为 JWT，可直接访问任务接口。验证码保存在 Redis 的 `EmailCode:<email>` 中，重新发送会覆盖旧验证码并重新计时。
+密码必填，长度为 5～30 个字符；验证码必填且长度为 6。校验成功后创建用户，返回业务码 `200`，`data` 为 JWT，可直接访问任务接口。
 
 ### 用户登录
 
@@ -279,7 +351,7 @@ Content-Type: application/json
 }
 ```
 
-JWT 包含 `uid`、`username`、签发时间 `iat` 和过期时间 `exp`，使用 HS256 签名，有效期由 `JWT_EXPIRE_DAY` 决定。过期后需重新登录；退出登录通过 Redis 黑名单撤销当前 Token。
+JWT 包含 `uid`、`username`、唯一标识 `jti`、签发时间 `iat` 和过期时间 `exp`，使用 HS256 签名，有效期由 `JWT_EXPIRE_DAY` 决定。过期后需重新登录；退出登录通过 Redis 中的 `jti` 黑名单撤销当前 Token。
 
 ### 退出登录
 
@@ -288,7 +360,7 @@ GET /logout
 Authorization: Bearer <token>
 ```
 
-成功返回 `data: null`、业务码 `204`（实际 HTTP 状态仍为 200），客户端应清除本地 Token。服务端将完整 Authorization 值保存到 `jwt:blackList:<Authorization>`，再次使用同一 Token 访问受保护接口会返回业务码 `401`。当前黑名单写入尚未设置过期时间，见文末待完善事项。
+成功返回 `data: null`、业务码 `204`（实际 HTTP 状态仍为 200），客户端应清除本地 Token。服务端把 Token 的 `jti` 写入 `jwt:logout:{jti}`，过期时间取 Token 的剩余有效期，因此登出记录不会长期残留；再次使用同一 Token 访问受保护接口会返回业务码 `401`。
 
 ### 创建任务
 
@@ -347,19 +419,31 @@ Authorization: Bearer <token>
 }
 ```
 
+限流命中时返回（例如查询任务详情超过阈值后再次请求）：
+
+```json
+{
+  "code": 429,
+  "message": "请求过多，被限流",
+  "data": null
+}
+```
+
 登录和鉴权错误同样使用 `Result` 包装，以下 `code` 均为业务码，实际 HTTP 状态仍为 200：
 
 | 情况 | `code` | `message` |
 | --- | --- | --- |
 | 用户不存在 | `400` | 该用户不存在，请重新输入用户名 |
 | 密码不匹配 | `400` | 密码错误，登录失败 |
+| `status` 取值非法 | `400` | 参数只能是PENDING或DONE |
 | 未提供 Authorization、请求头为空或缺少 `Bearer ` 前缀 | `401` | 未提供Token |
 | Token 过期 | `401` | Token已过期 |
 | Token 格式错误（捕获到 `MalformedJwtException`） | `401` | Token格式错误 |
 | Token 签名错误 | `401` | Token签名错误 |
-| 其他 JWT 异常（捕获到 `JwtException`） | `500` | Token解析失败 |
+| 其他 JWT 异常（捕获到 `JwtException`） | `401` | 未认证，需要登录 |
+| 触发接口限流 | `429` | 请求过多，被限流 |
 
-当前主要业务码为 `400`（字段校验或登录失败）、`401`（未通过鉴权）、`404`（任务不存在）、`409`（重复完成）和 `500`（系统异常）。JSON 格式错误、参数类型不匹配或其他运行时异常目前可能进入通用异常处理，返回业务码 `500`；列表 `status` 的取值校验尚未实现。
+JWT 相关的异常一律按凭证问题处理，返回 `401`，不会被当作系统异常。当前主要业务码为 `400`（字段校验、参数取值或登录失败）、`401`（未通过鉴权）、`404`（任务不存在）、`409`（重复完成）、`429`（触发限流）和 `500`（系统异常）。JSON 格式错误、参数类型不匹配或其他运行时异常目前可能进入通用异常处理，返回业务码 `500`。
 
 ### PowerShell 调用示例
 
@@ -412,6 +496,29 @@ Invoke-RestMethod -Method Get -Uri "$baseUrl/logout" -Headers $headers
 
 验证失败回滚时，应在业务调用结束后独立查询数据库，避免仅依靠测试方法外层事务的自动回滚来判断。
 
+## 限流脚本的手工验证
+
+限流脚本可以脱离 Java 单独验证，便于先确认脚本逻辑再排查应用层问题。在项目根目录执行，逗号前是 `KEYS`、逗号后是 `ARGV`：
+
+```powershell
+# 参数顺序：KEYS[1] 黑名单键、KEYS[2] 计数键、ARGV[1] 阈值、ARGV[2] 窗口秒、ARGV[3] 封禁秒
+redis-cli --eval src/main/resources/scripts/rate-limit.lua limit:blacklist:test:127.0.0.1 limit:count:test:127.0.0.1 , 5 60 60
+```
+
+连续执行观察返回值和键的变化：
+
+- 前 5 次返回整数 `1`（放行），第 6 次返回 `0`（拒绝）并写入黑名单键；
+- `TTL limit:count:test:127.0.0.1` 应接近窗口长度，且不随请求次数增长；
+- 黑名单键的 TTL 应接近 `banSecond`。
+
+清理测试数据：
+
+```powershell
+redis-cli DEL limit:blacklist:test:127.0.0.1 limit:count:test:127.0.0.1
+```
+
+在 PowerShell 中，`--eval` 的逗号会被解释为数组分隔符，需要写成 `','` 或改用 `cmd`。
+
 ## 测试与构建
 
 在配置好数据库、Redis、RabbitMQ、SMTP、JWT 和 HTTPS 环境变量及证书后执行：
@@ -433,16 +540,44 @@ java -jar .\target\Task-Manager-0.0.1-SNAPSHOT.jar
 
 ## 待完善事项
 
-对照设计书，后续主要完善以下内容：
+限流：
 
-校验列表状态只接受 `PENDING`、`DONE` 或不筛选，非法值返回参数错误。
+- 未标注 `@RateLimit` 的方法（例如 `/logout`）目前直接放行，尚未实现宽松默认档。
+- 限流维度只有客户端 IP，尚无按用户（UID）限流；共享出口 IP 的场景可能误伤真实用户。
+- 阈值仍按接口逐个硬编码，尚未整理成严格（登录、注册、发码、改密）、中等（增删改）、宽松（查询）三档统一配置。
+- 验证码接口只有 IP 这一层；计划中的 email 维度限流，以及用于拦截低频慢刷的“累计总量”多级窗口（1 分钟 / 1 小时 / 1 天）尚未实现。
+- 白名单路径（静态资源、接口文档、健康检查）尚未统一排除。
+- 尚未抽取 `IpUtils.getRealIp(request)`：当前直接使用 `getRemoteAddr()`，未读取可能被伪造的 `X-Forwarded-For`；将来上 Nginx 时需开启 `forward-headers-strategy: native` 并限制应用端口只对内网开放（`application.yml` 中已留注释）。
 
-补充包含任务 ID 和关键操作的业务日志。
+验证码与注册：
 
-补充验证码缺失或过期时的空值处理，注册成功后删除验证码，并限制发送及验证频率。
+- 验证码使用 `ThreadLocalRandom` 生成，计划改用 `SecureRandom`。
+- 注册成功后清理验证码的键是 `EmailCode:{email}`，与写入的 `EmailCode:{email}:{ip}` 不一致，实际未删除，验证码在有效期内可重复使用。
+- 验证码的“发送标记”和“验证码值”共用同一个键，两者的生命周期被绑在一起；邮件发送失败时也不会回滚已写入的标记。
 
-确认注册时重新校验用户名和邮箱唯一性，并完善数据库约束及并发处理。
+JWT 与鉴权：
 
-补充注册、验证码失效和退出后 Token 被拒绝的自动化测试。
+- `catch (JwtException)` 分支未记录日志，签名错误等安全事件目前是静默的。
+- `uid`、`username` 等负载字段名以及 Redis 键名前缀仍是散落的字面量，未抽成常量。
+- 请求头的 `Bearer ` 前缀大小写敏感，尚未按 RFC 6750 做成大小写不敏感。
 
-按用户关联任务并校验访问权限，实现任务数据隔离。
+任务与业务：
+
+- 任务尚未按用户隔离，已登录用户可以访问和操作全部任务。
+- 补充包含任务 ID 和关键操作的业务日志。
+
+测试：
+
+- 补充注册、验证码失效、退出后 Token 被拒绝、限流触发与封禁的自动化断言。
+- 补充提交频率限制相关的手工验证记录。
+
+## 更新记录
+
+### 2026-09-27
+
+- 新增接口限流：`@RateLimit` 注解、`LimitInterceptor`、`RequestLimiter` 与 Redis Lua 脚本 `scripts/rate-limit.lua`。
+- 限流与鉴权拆分为两个独立拦截器，并把限流排在鉴权之前，避免未携带 Token 的请求绕过计数。
+- `RequestType` 由按请求方法划分改为按接口划分，各接口拥有独立计数额度。
+- JWT 增加 `jti`；退出登录改用 `jwt:logout:{jti}`，过期时间取 Token 剩余有效期（此前保存完整 Authorization 值且未设置过期时间）。
+- JWT 兜底异常由 `500` 改为 `401`，与凭证问题语义一致。
+- 查询列表的 `status` 参数增加取值校验。

@@ -35,3 +35,6 @@ build/
 /account
 # 本地环境变量配置
 /envionment_variables.env
+
+# 待办事项
+/待办事项.md

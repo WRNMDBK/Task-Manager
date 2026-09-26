@@ -7,12 +7,14 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.Duration;
 
 @Slf4j
 @Component
@@ -20,11 +22,14 @@ public class EmailListener {
 
     private final JavaMailSender javaMailSender;
     private final String emailOfSender;
+    private final StringRedisTemplate stringRedisTemplate;
+    @Value("${limit.email-code-second}") private long emailCodeSecond;
 
     @Autowired
-    public EmailListener(JavaMailSender javaMailSender,@Value("${spring.mail.username}") String emailOfSender) {
+    public EmailListener(JavaMailSender javaMailSender,@Value("${spring.mail.username}") String emailOfSender, StringRedisTemplate stringRedisTemplate) {
         this.javaMailSender = javaMailSender;
         this.emailOfSender = emailOfSender;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @RabbitListener(queues = "email", messageConverter = "jacksonConverter")
@@ -37,6 +42,9 @@ public class EmailListener {
             message.setTo(info.getEmail());
             javaMailSender.send(message);
             channel.basicAck(deliveryTag,false);  // 发送成功手动确认
+            stringRedisTemplate.opsForValue().set("EmailCode:" + info.getEmail() + ":" + info.getIp(),
+                    info.getCode(),
+                    Duration.ofSeconds(emailCodeSecond));  // 在 Redis 设置计数器防止频繁验证
         } catch (Exception e) {
             log.error("邮箱验证码发布失败：",e);
             try {

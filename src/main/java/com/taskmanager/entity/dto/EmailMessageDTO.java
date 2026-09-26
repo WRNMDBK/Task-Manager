@@ -12,4 +12,5 @@ import lombok.NoArgsConstructor;
 public class EmailMessageDTO {
     private String email;
     private String code;
+    private String ip;
 }

@@ -1,15 +1,20 @@
 package com.taskmanager.controller;
 
+import com.taskmanager.annotation.RateLimit;
 import com.taskmanager.entity.dto.Task;
 import com.taskmanager.entity.vo.CreateTaskVO;
 import com.taskmanager.service.TaskService;
 import com.taskmanager.utils.Result;
+import com.taskmanager.utils.enums.RequestType;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Validated
 @RestController
 @RequestMapping("/tasks")
 @RequiredArgsConstructor
@@ -23,6 +28,7 @@ public class TaskController {
      * @return 新增 task_record 的主键 ID
      */
     @PostMapping
+    @RateLimit(type = RequestType.CREATE_TASK, count = 5, second = 60, banSecond = 180)
     public Result<Long> createTask(@Valid @RequestBody CreateTaskVO taskRequest) {
         Long result = taskService.createTask(taskRequest);
         return Result.success(result);
@@ -34,6 +40,7 @@ public class TaskController {
      * @return Task 对象
      */
     @GetMapping("/{id}")
+    @RateLimit(type = RequestType.GET_TASK_MESSAGE, count = 5, second = 1, banSecond = 60)
     public Result<Task> getTaskMessage(@PathVariable Long id) {
         Task task = taskService.selectTaskById(id);
         return Result.success(task);
@@ -46,7 +53,8 @@ public class TaskController {
      * @return Task 列表
      */
     @GetMapping
-    public Result<List<Task>> getTaskList(@RequestParam(value = "status", required = false) String status) {
+    @RateLimit(type = RequestType.GET_TASK_LIST, count = 5, second = 1, banSecond = 60)
+    public Result<List<Task>> getTaskList(@Pattern(regexp = "^(PENDING|DONE)?$", message = "参数只能是PENDING或DONE") @RequestParam(value = "status", required = false) String status) {
         List<Task> taskList = taskService.getTaskList(status);
         return Result.success(taskList);
     }
@@ -58,6 +66,7 @@ public class TaskController {
      * @return 操作成功响应
      */
     @PostMapping("/{id}/complete")
+    @RateLimit(type = RequestType.COMPLETE_TASK, count = 5, second = 60, banSecond = 180)
     public Result<Void> completeTask(@PathVariable Long id) {
         taskService.completeTask(id);
         return Result.success();
@@ -69,6 +78,7 @@ public class TaskController {
      * @return 操作成功响应
      */
     @DeleteMapping("/{id}")
+    @RateLimit(type = RequestType.DELETE_TASK, count = 5, second = 60, banSecond = 180)
     public Result<Void> deleteTask(@PathVariable Long id) {
         taskService.deleteTask(id);
         return Result.success();

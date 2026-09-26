@@ -31,6 +31,7 @@ public enum ResultCode {
     NOT_EXIST(404,"资源不存在"),
     METHOD_NOT_ALLOWED(405,"请求方法不被允许"),
     CONFLICT(409,"请求与当前资源状态冲突"),
+    TOO_MANY_REQUESTS(429,"请求过多，被限流"),
 
     // 5**
     INTERNAL_SERVER_ERROR(500,"系统内部异常"),
