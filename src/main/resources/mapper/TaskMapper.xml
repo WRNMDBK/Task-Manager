@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.taskmanager.mapper.TaskMapper">
+<mapper namespace="com.taskmanager.task.infrastructure.TaskMapper">
 
     <select id="getListByStatus" resultMap="taskResultMap">
         select * from task_record
@@ -14,7 +14,7 @@
         ORDER BY id ASC
     </select>
 
-    <resultMap id="taskResultMap" type="com.taskmanager.entity.dto.Task">
+    <resultMap id="taskResultMap" type="com.taskmanager.task.domain.Task">
         <id property="id" column="id"/>
         <result property="title" column="title"/>
         <result property="description" column="description"/>
